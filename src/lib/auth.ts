@@ -4,7 +4,7 @@ import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { AuthOptions, DefaultSession, getServerSession } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import type { Adapter } from "next-auth/adapters";
-import { users } from "@/db/schema"; // ensure this path matches your project
+import { users } from "@/db/schema"; // ensure this path is correct
 
 declare module "next-auth" {
   interface Session extends DefaultSession {
@@ -16,13 +16,13 @@ declare module "next-auth" {
 
 /**
  * NOTE:
- * - We cast DrizzleAdapter to `any` to avoid type mismatches between @auth/drizzle-adapter
- *   and next-auth typings. This is safe at runtime (adapter shape is correct).
- * - Callbacks are defensive: they don't throw, they fallback gracefully, and log when debug is enabled.
+ * - Casting `db` to `any` before passing to DrizzleAdapter
+ *   fixes the PgDatabase vs MySql2Database type mismatch.
+ * - Safe at runtime: the adapter supports MySQL.
  */
 
 export const authConfig: AuthOptions = {
-  adapter: DrizzleAdapter(db) as unknown as Adapter,
+  adapter: DrizzleAdapter(db as any) as Adapter,
   session: {
     strategy: "jwt",
   },
@@ -33,10 +33,10 @@ export const authConfig: AuthOptions = {
     }),
   ],
   callbacks: {
-    // jwt is called on sign-in and on subsequent requests
+    // jwt is called on sign-in and subsequent requests
     async jwt({ token, user }: { token: any; user?: any }) {
       try {
-        // 1) If `user` exists, this is the first sign-in after OAuth
+        // 1) First sign-in after OAuth
         if (user) {
           const email = (user as any).email ?? token.email;
           if (email) {
@@ -54,7 +54,7 @@ export const authConfig: AuthOptions = {
             }
           }
 
-          // Adapter may not have created the user yet; return token built from provider user
+          // Adapter may not have created the user yet
           return {
             ...token,
             id: (user as any).id ?? token.sub,
@@ -64,7 +64,7 @@ export const authConfig: AuthOptions = {
           };
         }
 
-        // 2) Subsequent requests: try to enrich token from DB using token.email
+        // 2) Subsequent requests
         if (token?.email) {
           const dbUser = await db.query.users.findFirst({
             where: (u, { eq }) => eq(u.email, token.email as string),
@@ -102,7 +102,6 @@ export const authConfig: AuthOptions = {
       return session;
     },
   },
-  // more options can be added here (pages, events, etc.)
 };
 
 export function getSession() {
